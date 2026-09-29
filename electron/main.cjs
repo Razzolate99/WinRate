@@ -52,7 +52,10 @@ function publicSettings(settings) {
 }
 
 async function requestJson(url, options = {}) {
-  const response = await net.fetch(url, options)
+  const response = await net.fetch(url, {
+    ...options,
+    signal: options.signal || AbortSignal.timeout(url === LIVE_URL ? 5_000 : 15_000),
+  })
   if (!response.ok) {
     const retryAfter = response.headers.get('retry-after')
     const error = new Error(
@@ -140,14 +143,25 @@ async function analyzePlayer(player, settings, matchCache) {
 
 async function scanGame() {
   const settings = await readSettings()
-  if (!settings.apiKey) return { status: 'setup_required' }
+  if (!settings.apiKey) {
+    return { status: 'setup_required', message: 'Add a Riot development API key before scanning.' }
+  }
 
   let game
   try {
     game = await requestJson(LIVE_URL)
   } catch (error) {
-    if (error.status) throw error
-    return { status: 'no_game' }
+    if (error.status) {
+      return {
+        status: 'error',
+        code: 'SCAN_FAILED',
+        message: `Riot's live client returned an error (${error.status}).`,
+      }
+    }
+    return {
+      status: 'no_game',
+      message: 'No active match found. Wait until your champion has loaded onto the map, then try again.',
+    }
   }
 
   const activeRiotId =
@@ -165,6 +179,30 @@ async function scanGame() {
     players.push(...(await Promise.all(batch.map((player) => analyzePlayer(player, settings, matchCache)))))
   }
 
+  const failedPlayers = players.filter((player) => player.status === 'error')
+  const unavailablePlayers = players.filter((player) => player.status === 'unavailable')
+  const readyPlayers = players.filter((player) => player.status === 'ready')
+  if (failedPlayers.length > 0 && readyPlayers.length === 0) {
+    const message = failedPlayers[0].error || 'Player histories could not be loaded.'
+    return {
+      status: 'error',
+      code: message.includes('invalid or expired')
+        ? 'API_KEY'
+        : message.includes('rate limit')
+          ? 'RATE_LIMIT'
+          : 'SCAN_FAILED',
+      message,
+    }
+  }
+
+  const warnings = []
+  if (failedPlayers.length > 0) {
+    warnings.push(`${failedPlayers.length} player histories could not be loaded.`)
+  }
+  if (unavailablePlayers.length > 0) {
+    warnings.push(`${unavailablePlayers.length} players are bots or have hidden Riot IDs.`)
+  }
+
   return {
     status: 'live',
     gameTime: game.gameData?.gameTime || 0,
@@ -174,6 +212,7 @@ async function scanGame() {
     threshold: settings.threshold,
     gamesAnalyzed: settings.games,
     players,
+    warnings,
     scannedAt: Date.now(),
   }
 }
@@ -201,7 +240,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   session.defaultSession.setCertificateVerifyProc((request, callback) => {
-    callback(request.hostname === '127.0.0.1' && request.port === '2999' ? 0 : -3)
+    callback(request.hostname === '127.0.0.1' ? 0 : -3)
   })
 
   ipcMain.handle('settings:get', async () => publicSettings(await readSettings()))

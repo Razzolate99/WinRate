@@ -95,6 +95,9 @@ h1 {
   align-items: center; gap: 10px; font-size: 13px;
 }
 .error-notice { color: #f4a8a8; background: rgba(239, 84, 84, .08); border: 1px solid rgba(239, 84, 84, .18); }
+.warning-notice { color: #f0bd78; background: rgba(240, 170, 70, .08); border: 1px solid rgba(240, 170, 70, .18); }
+.info-notice { color: #9eb5d0; background: rgba(95, 145, 205, .08); border: 1px solid rgba(95, 145, 205, .18); }
+.success-notice { color: #78dfc2; background: rgba(33, 213, 171, .08); border: 1px solid rgba(33, 213, 171, .18); }
 .notice span { flex: 1; }
 .notice button { border: 0; background: transparent; cursor: pointer; color: inherit; display: grid; }
 

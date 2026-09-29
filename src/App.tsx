@@ -104,6 +104,7 @@ function demoResult(): ScanResult {
     threshold: 2,
     gamesAnalyzed: 5,
     players,
+    warnings: [],
     scannedAt: Date.now(),
   }
 }
@@ -162,7 +163,10 @@ function App() {
   const [result, setResult] = useState<ScanResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [error, setError] = useState('')
+  const [notice, setNotice] = useState<{
+    kind: 'error' | 'warning' | 'info' | 'success'
+    message: string
+  } | null>(null)
   const [showIntro, setShowIntro] = useState(true)
   const scanning = useRef(false)
 
@@ -170,11 +174,27 @@ function App() {
     if (scanning.current) return
     scanning.current = true
     setLoading(true)
-    setError('')
+    setNotice(null)
     try {
-      setResult(await window.winrate.scanGame())
+      const scanResult = await window.winrate.scanGame()
+      setResult(scanResult)
+      if (scanResult.status === 'live') {
+        const analyzed = scanResult.players.filter((player) => player.status === 'ready').length
+        setNotice({
+          kind: scanResult.warnings.length ? 'warning' : 'success',
+          message: scanResult.warnings[0] || `Live game found. Analyzed ${analyzed} players.`,
+        })
+      } else {
+        setNotice({
+          kind: scanResult.status === 'error' ? 'error' : scanResult.status === 'no_game' ? 'info' : 'warning',
+          message: scanResult.message,
+        })
+      }
     } catch (scanError) {
-      setError(scanError instanceof Error ? scanError.message : 'The scan could not be completed.')
+      setNotice({
+        kind: 'error',
+        message: scanError instanceof Error ? scanError.message : 'The scan could not be completed.',
+      })
     } finally {
       setLoading(false)
       scanning.current = false
@@ -182,11 +202,14 @@ function App() {
   }, [])
 
   useEffect(() => {
-    window.winrate.getSettings().then((saved) => {
-      setSettings(saved)
-      setDraft(saved)
-      if (saved.apiKey) void scan()
-    })
+    window.winrate
+      .getSettings()
+      .then((saved) => {
+        setSettings(saved)
+        setDraft(saved)
+        if (saved.apiKey) void scan()
+      })
+      .catch(() => setNotice({ kind: 'error', message: 'WinRate could not load your saved settings.' }))
   }, [scan])
 
   useEffect(() => {
@@ -195,7 +218,12 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!settings.apiKey || result?.status === 'live' || result?.status === 'setup_required') return
+    if (
+      !settings.apiKey ||
+      result?.status === 'live' ||
+      result?.status === 'error' ||
+      result?.status === 'setup_required'
+    ) return
     const interval = window.setInterval(scan, 15_000)
     return () => window.clearInterval(interval)
   }, [result?.status, scan, settings.apiKey])
@@ -213,11 +241,15 @@ function App() {
   }, [liveResult])
 
   async function saveSettings() {
-    const saved = await window.winrate.saveSettings(draft)
-    setSettings(saved)
-    setDraft(saved)
-    setSettingsOpen(false)
-    await scan()
+    try {
+      const saved = await window.winrate.saveSettings(draft)
+      setSettings(saved)
+      setDraft(saved)
+      setSettingsOpen(false)
+      await scan()
+    } catch {
+      setNotice({ kind: 'error', message: 'Settings could not be saved. Please try again.' })
+    }
   }
 
   return (
@@ -263,11 +295,11 @@ function App() {
           </div>
         </section>
 
-        {error && (
-          <div className="notice error-notice">
-            <AlertTriangle size={17} />
-            <span>{error}</span>
-            <button onClick={() => setError('')}><X size={15} /></button>
+        {notice && (
+          <div className={`notice ${notice.kind}-notice`} role="status">
+            {notice.kind === 'success' ? <Check size={17} /> : <AlertTriangle size={17} />}
+            <span>{notice.message}</span>
+            <button onClick={() => setNotice(null)} aria-label="Dismiss message"><X size={15} /></button>
           </div>
         )}
 

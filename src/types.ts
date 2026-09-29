@@ -30,7 +30,8 @@ export interface PlayerAnalysis {
 }
 
 export type ScanResult =
-  | { status: 'setup_required' | 'no_game' }
+  | { status: 'setup_required' | 'no_game'; message: string }
+  | { status: 'error'; code: 'API_KEY' | 'RATE_LIMIT' | 'SCAN_FAILED'; message: string }
   | {
       status: 'live'
       gameTime: number
@@ -40,6 +41,7 @@ export type ScanResult =
       threshold: number
       gamesAnalyzed: number
       players: PlayerAnalysis[]
+      warnings: string[]
       scannedAt: number
     }
 
